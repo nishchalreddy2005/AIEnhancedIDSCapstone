@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Upload, FileText, AlertTriangle, CheckCircle, XCircle, Eye } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, FileText, AlertTriangle, CheckCircle, XCircle, Eye, Activity, Pause } from 'lucide-react';
 
 interface IntrusionResult {
   status: 'safe' | 'warning' | 'danger';
@@ -9,7 +9,9 @@ interface IntrusionResult {
 }
 
 export default function CheckIntrusion() {
-  const [activeTab, setActiveTab] = useState<'manual' | 'upload'>('manual');
+  // const [activeTab, setActiveTab] = useState<'manual' | 'upload'>('manual');
+  const [activeTab, setActiveTab] = useState<'manual' | 'upload' | 'live'>('manual');
+
   const [logInput, setLogInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [result, setResult] = useState<IntrusionResult | null>(null);
@@ -39,11 +41,11 @@ export default function CheckIntrusion() {
         },
         body: JSON.stringify({ log_data: logInput })
       });
-      
+
       if (!response.ok) {
         throw new Error('Analysis failed');
       }
-      
+
       const result = await response.json();
       setResult({
         status: result.status,
@@ -70,16 +72,16 @@ export default function CheckIntrusion() {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      
+
       const response = await fetch('http://localhost:5000/analyze-csv', {
         method: 'POST',
         body: formData
       });
-      
+
       if (!response.ok) {
         throw new Error('File analysis failed');
       }
-      
+
       const result = await response.json();
       setResult({
         status: result.status,
@@ -94,6 +96,38 @@ export default function CheckIntrusion() {
       setLoading(false);
     }
   };
+
+
+
+  /* =========================
+     LIVE MONITORING LOGIC
+  ========================= */
+  const [liveRunning, setLiveRunning] = useState(false);
+
+  useEffect(() => {
+    if (!liveRunning) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch('http://localhost:5000/analyse-live');
+        if (!response.ok) return;
+
+        const data = await response.json();
+        setResult({
+          status: data.status,
+          confidence: data.confidence,
+          details: data.details,
+          timestamp: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('Live monitoring error:', err);
+      }
+    }, 5000); // poll every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [liveRunning]);
+
+
 
   const getResultIcon = (status: string) => {
     switch (status) {
@@ -141,25 +175,33 @@ export default function CheckIntrusion() {
           <div className="flex mb-8 bg-slate-700/30 rounded-xl p-1">
             <button
               onClick={() => setActiveTab('manual')}
-              className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
-                activeTab === 'manual'
-                  ? 'bg-blue-600 text-white shadow-lg'
-                  : 'text-gray-400 hover:text-white'
-              }`}
+              className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${activeTab === 'manual'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white'
+                }`}
             >
               <FileText className="h-5 w-5 inline mr-2" />
               Manual Input
             </button>
             <button
               onClick={() => setActiveTab('upload')}
-              className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
-                activeTab === 'upload'
-                  ? 'bg-blue-600 text-white shadow-lg'
-                  : 'text-gray-400 hover:text-white'
-              }`}
+              className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${activeTab === 'upload'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white'
+                }`}
             >
               <Upload className="h-5 w-5 inline mr-2" />
               CSV Upload
+            </button>
+            <button
+              onClick={() => setActiveTab('live')}
+              className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${activeTab === 'live'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'text-gray-400 hover:text-white'
+                }`}
+            >
+              <Activity className="h-5 w-5 inline mr-2" />
+              Live Monitoring
             </button>
           </div>
 
@@ -219,12 +261,12 @@ export default function CheckIntrusion() {
                 {/* <code className="text-sm text-cyan-400">
                   timestamp, source_ip, dest_ip, port, protocol, packet_size, flags
                 </code> */}
-                <code className="text-sm text-cyan-400" style={{whiteSpace: 'pre-line'}}>
-                duration  protocol_type  service  flag  src_bytes  dst_bytes  land  wrong_fragment  urgent  hot  num_failed_logins
-                logged_in  lnum_compromised  lroot_shell  lsu_attempted  lnum_root  lnum_file_creations  lnum_shells  lnum_access_files  lnum_outbound_cmds  is_host_login
-                is_guest_login  count  srv_count  serror_rate  srv_serror_rate  rerror_rate  srv_rerror_rate  same_srv_rate  diff_srv_rate
-                srv_diff_host_rate  dst_host_count  dst_host_srv_count  dst_host_same_srv_rate  dst_host_diff_srv_rate  dst_host_same_src_port_rate  dst_host_srv_diff_host_rate
-                dst_host_serror_rate  dst_host_srv_serror_rate  dst_host_rerror_rate  dst_host_srv_rerror_rate  label
+                <code className="text-sm text-cyan-400" style={{ whiteSpace: 'pre-line' }}>
+                  duration  protocol_type  service  flag  src_bytes  dst_bytes  land  wrong_fragment  urgent  hot  num_failed_logins
+                  logged_in  lnum_compromised  lroot_shell  lsu_attempted  lnum_root  lnum_file_creations  lnum_shells  lnum_access_files  lnum_outbound_cmds  is_host_login
+                  is_guest_login  count  srv_count  serror_rate  srv_serror_rate  rerror_rate  srv_rerror_rate  same_srv_rate  diff_srv_rate
+                  srv_diff_host_rate  dst_host_count  dst_host_srv_count  dst_host_same_srv_rate  dst_host_diff_srv_rate  dst_host_same_src_port_rate  dst_host_srv_diff_host_rate
+                  dst_host_serror_rate  dst_host_srv_serror_rate  dst_host_rerror_rate  dst_host_srv_rerror_rate  label
                 </code>
 
               </div>
@@ -234,6 +276,35 @@ export default function CheckIntrusion() {
                 className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-semibold rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Processing...' : 'Analyze File'}
+              </button>
+            </div>
+          )}
+
+          {/* Live */}
+          {activeTab === 'live' && (
+            <div className="space-y-6 text-center">
+              <p className="text-gray-300">
+                Real-time AI-based network intrusion monitoring
+              </p>
+
+              <button
+                onClick={() => setLiveRunning(!liveRunning)}
+                className={`w-full py-4 rounded-lg font-semibold ${liveRunning
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-green-600 hover:bg-green-700'
+                  }`}
+              >
+                {liveRunning ? (
+                  <>
+                    <Pause className="inline mr-2 h-5 w-5" />
+                    Stop Monitoring
+                  </>
+                ) : (
+                  <>
+                    <Activity className="inline mr-2 h-5 w-5" />
+                    Start Live Monitoring
+                  </>
+                )}
               </button>
             </div>
           )}

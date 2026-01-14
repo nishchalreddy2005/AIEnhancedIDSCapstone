@@ -2,10 +2,106 @@ from flask import Flask, request, jsonify
 import json
 from flask_cors import CORS
 import core_ml as ml  # The machine learning model module rewritten below
+from scapy.all import sniff, IP, TCP, UDP
+import time
+
 
 app = Flask(__name__)
 # CORS(app)
 CORS(app, origins=["http://localhost:5173"])
+
+def extract_live_features(packet):
+    """
+    Convert a live packet into a KDD-like feature dict
+    (minimal but compatible with your ML pipeline)
+    """
+    features = {
+        "duration": 0,
+        "protocol_type": "tcp",
+        "service": "other",
+        "flag": "SF",
+        "src_bytes": 0,
+        "dst_bytes": 0,
+        "count": 1,
+        "srv_count": 1
+    }
+
+    if IP in packet:
+        features["src_bytes"] = len(packet)
+        features["dst_bytes"] = len(packet.payload)
+
+        if TCP in packet:
+            features["protocol_type"] = "tcp"
+            flags = packet[TCP].flags
+            if flags & 0x02:
+                features["flag"] = "S0"
+            elif flags & 0x10:
+                features["flag"] = "SF"
+            else:
+                features["flag"] = "REJ"
+
+        elif UDP in packet:
+            features["protocol_type"] = "udp"
+            features["flag"] = "SF"
+
+    return features
+
+@app.route('/analyse-live', methods=['GET'])
+def analyse_live():
+    """
+    Capture live packets (short window), analyze using ML,
+    and return dynamic detection results.
+    """
+    try:
+        results = []
+
+        def process_packet(packet):
+            features = extract_live_features(packet)
+            prediction = ml.predict(features)
+
+            results.append({
+                "timestamp": time.time(),
+                "features": features,
+                "status": prediction["status"],
+                "confidence": prediction["confidence"],
+                "details": prediction["details"]
+            })
+
+        # Capture packets for 5 seconds (adjustable)
+        sniff(prn=process_packet, timeout=5, store=False)
+
+        if not results:
+            return jsonify({
+                "status": "no-data",
+                "confidence": 0,
+                "details": "No packets captured during live window"
+            })
+
+        # Aggregate results
+        anomalies = [r for r in results if r["status"] != "safe"]
+        anomaly_ratio = len(anomalies) / len(results)
+
+        if anomaly_ratio == 0:
+            final_status = "safe"
+            confidence = 95
+        elif anomaly_ratio < 0.2:
+            final_status = "warning"
+            confidence = 70
+        else:
+            final_status = "danger"
+            confidence = 90
+
+        return jsonify({
+            "status": final_status,
+            "confidence": confidence,
+            "details": f"Live analysis complete. {len(anomalies)} anomalies detected out of {len(results)} packets.",
+            "samples": results[:10]  # send first 10 detections only
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"Live analysis failed: {str(e)}"}), 500
+
+
 
 @app.route('/analyze-csv', methods=['POST'])
 def analyze_csv():
